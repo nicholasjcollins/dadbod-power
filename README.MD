@@ -2,13 +2,14 @@
 ## Installation
 
 ```lua
-use {
+return {
   'nicholasjcollins/dadbod-power',
   dependencies = {
     'tpope/vim-dadbod',
   },
   config = function()
-    require('dadbod-power').setup({
+    local dadbod_power = require 'dadbod-power.config'
+    dadbod_power.setup({
       custom_queries = {
         -- header = { -- use sqlserver, mssql, postgres, etc to override the existing connection queries, or build one for any other connector
             -- tables = {}, -- to get list of tables

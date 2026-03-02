@@ -57,51 +57,15 @@ end
 
 local function get_rows(query)
     local url = vim.t.db or vim.g.db
-    local result = vim.fn["db#execute"](url, query)
+    local cmd = string.format("DB %s %s", url, query)
+    local result = vim.api.nvim_exec2(cmd, {output = true})
+    -- local result = vim.fn["db#execute"](url, query)
 
     if not result or result == "" then
         vim.notify("No results returned", vim.log.levels.WARN)
         return nil
     end
 
-    local rows = {}
-    for line in result:gmatch("[^\r\n]+") do
-        local trimmed = line:match("^%s*(.-)%s*$")
-        if trimmed and trimmed ~= "" then
-            table.insert(rows, trimmed)
-        end
-    end
-    return rows
-end
-
-
-local function get_rows_old(creds, query)
-    local cmd
-    if creds.type == "sqlserver" then
-        cmd = string.format('sqlcmd -S %s -U %s -P "%s" -d %s -h -1 -W -Q "%s"',
-            creds.server, creds.username or "", creds.password or "", creds.database, query)
-    elseif creds.type == "mysql" then
-        -- Set MYSQL_PWD environment variable for mysql
-        vim.env.MYSQL_PWD = creds.password
-        cmd = string.format('mysql -h %s -u %s -sN -e "%s"',
-            creds.server, creds.username, query)
-    elseif creds.type == "postgresql" then
-        cmd = string.format('PGPASSWORD="%s" psql -h %s -U %s -d %s -t -A -c "%s"',
-            creds.password, creds.server, creds.username, creds.database, query)
-    end
-    if not cmd then return nil end
-    local handle = io.popen(cmd)
-    if not handle then
-        vim.notify("Failed to execute database query", vim.log.levels.ERROR)
-        return nil
-    end
-    local result = handle:read("*a")
-    handle:close()
-    if not result or result == "" then
-        vim.notify("No databases found", vim.log.levels.WARN)
-        return nil
-    end
-    -- Parse results
     local rows = {}
     for line in result:gmatch("[^\r\n]+") do
         local trimmed = line:match("^%s*(.-)%s*$")
