@@ -172,7 +172,7 @@ local function get_rows(query)
         vim.notify("No active dadbod connection", vim.log.levels.WARN)
         return nil
     end
-    local cmd = string.format("DB %s %s", url, query)
+    local cmd = string.format("DB %s", query)
     local result = vim.api.nvim_exec2(cmd, { output = true }).output
     if not result or result == "" then
         vim.notify("No results returned", vim.log.levels.WARN)
