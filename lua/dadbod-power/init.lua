@@ -310,10 +310,7 @@ local function display_picker(server_type, rows, command_type)
 end
 
 function M.execute_command(command_type, parameter)
-    if not vim.t.database_credentials then
-        vim.notify("No data stored in vim.t.database_credentials, please authenticate with dadbod-auth or set", vim.log.levels.WARN)
-        return
-    end
+
     local connection_string = vim.t.db or vim.g.db
     local server_type = get_server_type(connection_string)
     local query = get_query(get_queries(server_type), command_type, parameter)
