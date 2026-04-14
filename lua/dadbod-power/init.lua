@@ -144,10 +144,6 @@ local function get_server_type(url)
     return string.lower(header)
 end
 
-local function has_telescope()
-    return pcall(require, 'telescope')
-end
-
 local function get_queries(server_type)
     local queries = config.options.custom_queries[server_type]
     if queries == nil then queries = default_queries[server_type] end
@@ -165,7 +161,6 @@ local function build_query(query, server_type, parameter)
     return string.format(query, parameter, parameter)
 end
 
-
 local function get_rows(query, server_type)
     local url = vim.t.db or vim.g.db
     if not url then
@@ -180,7 +175,6 @@ local function get_rows(query, server_type)
         infile = vim.fn.tempname() .. ".sql"
         vim.fn.writefile(vim.split(query, "\n"), infile)
         cmd = vim.fn["db#adapter#dispatch"](conn, "input", infile)
-        -- strip headers and whitespace
         for i, v in ipairs(cmd) do
             if v == "sqlcmd" then
                 table.insert(cmd, "-h-1")
@@ -206,7 +200,6 @@ local function get_rows(query, server_type)
     end
 
     local lines = vim.fn["db#systemlist"](cmd, infile and "" or query)
-    vim.notify(vim.inspect(lines[1]), vim.log.levels.DEBUG)
     if infile then vim.fn.delete(infile) end
 
     if not lines or #lines == 0 then
@@ -249,68 +242,133 @@ local function open_buffer(rows)
     vim.bo[buf].filetype = "sql"
 end
 
+local _picker_backend = nil
+local function get_picker_backend()
+    if _picker_backend then return _picker_backend end
+    local override = vim.g.dadbod_power_picker
+    if override then _picker_backend = override; return _picker_backend end
+    if pcall(require, "fzf-lua") then _picker_backend = "fzf-lua"; return _picker_backend end
+    if pcall(require, "telescope") then _picker_backend = "telescope"; return _picker_backend end
+    return nil
+end
+
 local function display_picker(server_type, rows, command_type)
-    if not has_telescope() then
-        vim.notify("Telescope is required for picker, please install or specify an object name directly.", vim.log.levels.ERROR)
-        return
-    end
-    local pickers     = require('telescope.pickers')
-    local finders     = require('telescope.finders')
-    local previewers  = require('telescope.previewers')
-    local conf        = require('telescope.config').values
-    local actions     = require('telescope.actions')
-    local action_state = require('telescope.actions.state')
     if not rows or #rows == 0 then
         vim.notify("No " .. command_type .. "s found", vim.log.levels.WARN)
         return
     end
 
-    local has_preview = rows[1].preview ~= nil
-    local previewer = nil
-    if has_preview then
-        previewer = previewers.new_buffer_previewer({
-            title = "Preview",
-            define_preview = function(self, entry)
-                if entry.value.preview then
-                    local content = entry.value.preview:gsub("\\n", "\n")
-                    local lines = vim.split(content, "\n", {plain = true })
-                    vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
-                end
-            end,
-        })
-    end
+    local backend = get_picker_backend()
 
-    pickers.new({}, {
-        prompt_title = 'Select ' .. command_type,
-        previewer = previewer,
-        finder = finders.new_table({
-            results = rows,
-            entry_maker = function(entry)
-                local name = entry.name:match("^%s*(.-)%s*$")
-                return { value = { name = name, preview = entry.preview }, display = name, ordinal = name }
-            end
-        }),
-        sorter = conf.generic_sorter({}),
-        attach_mappings = function(prompt_bufnr, _)
-            actions.select_default:replace(function()
-                actions.close(prompt_bufnr)
-                local selection = action_state.get_selected_entry()
-                if selection then
-                    local query = get_query(get_queries(server_type), command_type, selection.value.name)
-                    query = build_query(query, server_type, selection.value.name)
-                    local result_rows = get_rows(query, server_type)
-                    if result_rows then
-                        open_buffer(result_rows)
+    if backend == "telescope" then
+        local pickers      = require('telescope.pickers')
+        local finders      = require('telescope.finders')
+        local previewers   = require('telescope.previewers')
+        local conf         = require('telescope.config').values
+        local actions      = require('telescope.actions')
+        local action_state = require('telescope.actions.state')
+
+        local has_preview = rows[1].preview ~= nil
+        local previewer = nil
+        if has_preview then
+            previewer = previewers.new_buffer_previewer({
+                title = "Preview",
+                define_preview = function(self, entry)
+                    if entry.value.preview then
+                        local content = entry.value.preview:gsub("\\n", "\n")
+                        local lines = vim.split(content, "\n", { plain = true })
+                        vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
                     end
+                end,
+            })
+        end
+
+        pickers.new({}, {
+            prompt_title = 'Select ' .. command_type,
+            previewer = previewer,
+            finder = finders.new_table({
+                results = rows,
+                entry_maker = function(entry)
+                    local name = entry.name:match("^%s*(.-)%s*$")
+                    return { value = { name = name, preview = entry.preview }, display = name, ordinal = name }
+                end,
+            }),
+            sorter = conf.generic_sorter({}),
+            attach_mappings = function(prompt_bufnr, _)
+                actions.select_default:replace(function()
+                    actions.close(prompt_bufnr)
+                    local selection = action_state.get_selected_entry()
+                    if selection then
+                        local query = get_query(get_queries(server_type), command_type, selection.value.name)
+                        query = build_query(query, server_type, selection.value.name)
+                        local result_rows = get_rows(query, server_type)
+                        if result_rows then open_buffer(result_rows) end
+                    end
+                end)
+                return true
+            end,
+        }):find()
+
+    elseif backend == "fzf-lua" then
+        local fzf = require("fzf-lua")
+
+        local display_items = {}
+        local row_map = {}
+        for _, row in ipairs(rows) do
+            local name = row.name:match("^%s*(.-)%s*$")
+            table.insert(display_items, name)
+            row_map[name] = row
+        end
+
+        local has_preview = rows[1].preview ~= nil
+
+        local fzf_opts = {
+            prompt = 'Select ' .. command_type .. '> ',
+            actions = {
+                ["default"] = function(selected)
+                    if not selected or not selected[1] then return end
+                    local name = selected[1]
+                    local query = get_query(get_queries(server_type), command_type, name)
+                    query = build_query(query, server_type, name)
+                    local result_rows = get_rows(query, server_type)
+                    if result_rows then open_buffer(result_rows) end
+                end,
+            },
+        }
+
+        if has_preview then
+            local FzfPreviewer = require("fzf-lua.previewer.builtin").base:extend()
+
+            FzfPreviewer.new = function(self, o, op, fzf_win)
+                self.super.new(self, o, op, fzf_win)
+                setmetatable(self, self)
+                return self
+            end
+
+            FzfPreviewer.populate_preview_buf = function(self, entry_str)
+                local row = row_map[entry_str]
+                local lines = {}
+                if row and row.preview then
+                    local content = row.preview:gsub("\\n", "\n")
+                    lines = vim.split(content, "\n", { plain = true })
                 end
-            end)
-            return true
-        end,
-    }):find()
+                vim.api.nvim_buf_set_lines(self.preview_bufnr, 0, -1, false, lines)
+                self:syntax_clear_region_cache()
+                vim.bo[self.preview_bufnr].filetype = "sql"
+            end
+
+            fzf_opts.previewer = FzfPreviewer
+            fzf_opts.winopts = { preview = { hidden = "nohidden" } }
+        end
+
+        fzf.fzf_exec(display_items, fzf_opts)
+
+    else
+        vim.notify("dadbod-power: no picker backend found. Install fzf-lua or telescope.nvim", vim.log.levels.ERROR)
+    end
 end
 
 function M.execute_command(command_type, parameter)
-
     local connection_string = vim.t.db or vim.g.db
     local server_type = get_server_type(connection_string)
     local query = get_query(get_queries(server_type), command_type, parameter)
