@@ -216,8 +216,10 @@ local function get_rows(query, server_type)
         local trimmed = line:match("^(.-)%s*$")
         if trimmed and trimmed ~= "" then
             local name, preview = trimmed:match("^(.-)%s*\t%s*(.*)$")
+
             if name then
-                table.insert(rows, { name = name, preview = preview ~= "" and preview or nil })
+                local preview_val = preview ~= "" and preview ~= "NULL" and preview or nil
+                table.insert(rows, { name = name, preview = preview_val })
             else
                 table.insert(rows, { name = trimmed, preview = nil })
             end
