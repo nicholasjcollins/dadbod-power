@@ -228,8 +228,12 @@ end
 
 local function open_buffer(rows)
     local buf = vim.api.nvim_create_buf(false, true)
+    if not buf or buf == 0 then
+        vim.notify("dadbod-power: failed to create buffer", vim.log.levels.ERROR)
+        return
+    end
     local lines = {}
-    for i, row in ipairs(rows) do
+    for _, row in ipairs(rows) do
         if row and row.name then
             local content = row.name:gsub("\\n", "\n")
             for _, line in ipairs(vim.split(content, "\n", { plain = true })) do
@@ -238,8 +242,8 @@ local function open_buffer(rows)
         end
     end
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "filetype", "sql")
     vim.api.nvim_set_current_buf(buf)
-    vim.bo[buf].filetype = "sql"
 end
 
 local _picker_backend = nil
@@ -327,7 +331,7 @@ local function display_picker(server_type, rows, command_type)
             actions = {
                 ["default"] = function(selected)
                     if not selected or not selected[1] then return end
-                    local name = selected[1]
+                    local name = selected[1]:gsub("\27%[[%d;]*m", "")
                     local query = get_query(get_queries(server_type), command_type, name)
                     query = build_query(query, server_type, name)
                     local result_rows = get_rows(query, server_type)
@@ -336,41 +340,20 @@ local function display_picker(server_type, rows, command_type)
             },
         }
 
-
-
         if has_preview then
-          fzf_opts.winopts = { preview = { hidden = "nohidden" } }
-          fzf_opts.previewer = false
-          fzf_opts.preview = function(items)
-              if not items or not items[1] then return {} end
-              local name = items[1]:gsub("\27%[[%d;]*m", "")  -- strip ANSI codes
-              local row = row_map[name]
-              if not row or not row.preview then return {} end
-              local content = row.preview:gsub("\\n", "\n")
-              return vim.split(content, "\n", { plain = true })
-          end
---[[
-            FzfPreviewer.new = function(self, o, op, fzf_win)
-                self.super.new(self, o, op, fzf_win)
-                setmetatable(self, self)
-                return self
-            end
-
-            FzfPreviewer.populate_preview_buf = function(self, entry_str)
-                local row = row_map[entry_str]
-                local lines = {}
-                if row and row.preview then
-                    local content = row.preview:gsub("\\n", "\n")
-                    lines = vim.split(content, "\n", { plain = true })
-                end
-                vim.api.nvim_buf_set_lines(self.preview_bufnr, 0, -1, false, lines)
-                self:syntax_clear_region_cache()
-                vim.bo[self.preview_bufnr].filetype = "sql"
-            end
-
-            fzf_opts.previewer = FzfPreviewer
             fzf_opts.winopts = { preview = { hidden = "nohidden" } }
-        ]]
+            fzf_opts.previewer = false
+            fzf_opts.preview = function(items)
+                if not items or not items[1] then return {} end
+                local name = items[1]:gsub("\27%[[%d;]*m", "")
+                local row = row_map[name]
+                if not row or not row.preview then return {} end
+                local content = row.preview:gsub("\\n", "\n")
+                return vim.split(content, "\n", { plain = true })
+            end
+        else
+            fzf_opts.winopts = { preview = { hidden = "hidden" } }
+            fzf_opts.previewer = false
         end
 
         fzf.fzf_exec(display_items, fzf_opts)
