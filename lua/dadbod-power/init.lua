@@ -336,9 +336,20 @@ local function display_picker(server_type, rows, command_type)
             },
         }
 
-        if has_preview then
-            local FzfPreviewer = require("fzf-lua.previewer.builtin").base:extend()
 
+
+        if has_preview then
+          fzf_opts.winopts = { preview = { hidden = "nohidden" } }
+          fzf_opts.previewer = false
+          fzf_opts.preview = function(items)
+              if not items or not items[1] then return {} end
+              local name = items[1]:gsub("\27%[[%d;]*m", "")  -- strip ANSI codes
+              local row = row_map[name]
+              if not row or not row.preview then return {} end
+              local content = row.preview:gsub("\\n", "\n")
+              return vim.split(content, "\n", { plain = true })
+          end
+--[[
             FzfPreviewer.new = function(self, o, op, fzf_win)
                 self.super.new(self, o, op, fzf_win)
                 setmetatable(self, self)
@@ -359,6 +370,7 @@ local function display_picker(server_type, rows, command_type)
 
             fzf_opts.previewer = FzfPreviewer
             fzf_opts.winopts = { preview = { hidden = "nohidden" } }
+        ]]
         end
 
         fzf.fzf_exec(display_items, fzf_opts)
